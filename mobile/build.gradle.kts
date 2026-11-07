@@ -12,6 +12,12 @@ val gl19AudioTest = providers.gradleProperty("diplay.gl19AudioTest").getOrElse("
 require(gl19AudioTest in setOf("baseline", "a", "b", "aopus")) { "diplay.gl19AudioTest must be baseline, a, b or aopus" }
 require(gl19AudioTest == "baseline" || gl19Diagnostics) { "GL19 audio tests require GL19 diagnostics" }
 val gl19AudioTestEnabled = gl19AudioTest != "baseline"
+// Local car-test release: preserve the installed A package/data and signing identity.
+val gl19Release = providers.gradleProperty("diplay.gl19Release").orNull == "true"
+require(!gl19Release || (gl19Diagnostics && gl19AudioTest == "aopus")) {
+    "GK19Play release requires GL19 diagnostics and the verified aopus policy"
+}
+
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
@@ -24,10 +30,10 @@ android {
         // API 18 predates native multidex; keep the launcher installable on 4.3.
         multiDexEnabled = true
         targetSdk = 37
-        versionCode = if (gl19AudioTest == "aopus") 32 else if (gl19AudioTestEnabled) 30 else 29
+        versionCode = if (gl19Release) 33 else if (gl19AudioTest == "aopus") 32 else if (gl19AudioTestEnabled) 30 else 29
         versionName = "0.2.10"
         manifestPlaceholders["diplayAppLabel"] = when (gl19AudioTest) {
-            "aopus" -> "DiPlay GL19 A 导航修复"
+            "aopus" -> "GK19Play"
             "a" -> "DiPlay GL19 A 焦点测试"
             "b" -> "DiPlay GL19 B RCC测试"
             else -> if (gl19Diagnostics) "DiPlay GL19 诊断" else "@string/app_name"
@@ -59,10 +65,17 @@ android {
             versionNameSuffix = if (gl19AudioTest == "aopus") "-gl19-a-opus-tools" else if (gl19AudioTestEnabled) "-gl19-$gl19AudioTest" else if (gl19Diagnostics) "-gl19-diag" else "-hud-test"
         }
         release {
+            isDebuggable = false
             optimization {
-                enable = false
+                enable = gl19Release
             }
-            signingConfig = signingConfigs.getByName("release")
+            if (gl19Release) {
+                applicationIdSuffix = ".gl19diaga"
+                versionNameSuffix = "-gk19play-release"
+            }
+            // A debug signing certificate does not enable the debugger. Keeping it
+            // here allows this non-debuggable release to update the tested A APK.
+            signingConfig = signingConfigs.getByName(if (gl19Release) "debug" else "release")
         }
     }
     compileOptions {
@@ -123,4 +136,9 @@ tasks.register("assembleStandaloneDebug") {
     group = "build"
     description = "Build a standalone car-test APK with explicitly provisioned authentication."
     dependsOn(verifyStandaloneAuthentication, "assembleDebug")
+}
+tasks.register("assembleStandaloneRelease") {
+    group = "build"
+    description = "Build a release APK with explicitly provisioned authentication."
+    dependsOn(verifyStandaloneAuthentication, "assembleRelease")
 }

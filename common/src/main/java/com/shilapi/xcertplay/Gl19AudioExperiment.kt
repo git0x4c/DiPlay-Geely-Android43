@@ -25,12 +25,12 @@ internal enum class Gl19AudioPolicy(val marker: String, val label: String) {
 
 internal object Gl19AudioExperiment {
     val policy = Gl19AudioPolicy.fromBuild(BuildConfig.GL19_AUDIO_TEST)
-    val marker get() = policy.marker
+    val marker get() = if (BuildConfig.GL19_RELEASE) "GK19PLAY-RELEASE-A-OPUS-SW" else policy.marker
     fun reportFileName(timestamp: String): String =
-        "DiPlay-" +
+        (if (BuildConfig.GL19_RELEASE) "GK19Play-" else "DiPlay-") +
             (if (policy == Gl19AudioPolicy.BASELINE) "" else "$marker-") + "诊断报告-$timestamp.txt"
     fun summary(api: Int): String =
         "GL19_AUDIO_TEST=$marker; ${policy.label}; api=$api; " +
             "skipLegacyKeyFocus=${policy.skipLegacyKeyFocus(api)}; skipLegacyRcc=${policy.skipLegacyRcc(api)}; " +
-            "rendererFocus=unchanged; autoResume=false"
+            "rendererFocus=unchanged; autoResume=false; buildProfile=${if (BuildConfig.GL19_RELEASE) "release-opt" else "diagnostic"}"
 }

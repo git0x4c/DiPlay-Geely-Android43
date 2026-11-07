@@ -1,4 +1,42 @@
 # Add project specific R8 rules here.
+# JNI calls these classes and one exception constructor by their literal names.
+-keep class com.shilapi.xcertplay.compat.LegacyUsbNative { *; }
+-keep class com.shilapi.xcertplay.network.LegacyHotspotNative { *; }
+-keep class com.shilapi.xcertplay.transport.LinuxI2cNative { *; }
+-keep class com.shilapi.xcertplay.transport.LinuxI2cNativeException { *; }
+
+# The API18/19 SurfaceView adapter looks up private host members by name.
+-keepclassmembers class com.shilapi.xcertplay.CarPlayHostActivity {
+    android.view.Surface currentSurface;
+    android.graphics.SurfaceTexture currentSurfaceTexture;
+    com.shilapi.xcertplay.media.AndroidMediaSink sink;
+    void attachSurface(android.view.Surface);
+    void scheduleDisplaySize(int, int);
+}
+-keepclassmembers class com.shilapi.xcertplay.media.AndroidMediaSink {
+    public void clearSurface(int, android.view.Surface);
+}
+
+# Dalvik must not verify API21/23 framework types in legacy entry classes.
+# Preserve these intentional API barriers against cross-class inlining/merging.
+-keep,allowobfuscation class com.shilapi.xcertplay.media.ModernAudio { *; }
+-keep,allowobfuscation class com.shilapi.xcertplay.ModernSession { *; }
+-keep,allowobfuscation class com.shilapi.xcertplay.CarPlayMediaCallback { *; }
+-keep,allowobfuscation class com.shilapi.xcertplay.ModernUsage { *; }
+-keep,allowobfuscation class com.shilapi.xcertplay.ModernUsageEvents { *; }
+
+# Provider services instantiate algorithms by name; retain authentication/crypto.
+-keep class org.bouncycastle.** { *; }
+-dontwarn javax.naming.**
+# SLF4J 1.7 intentionally falls back to NOP when no binding is bundled (as in debug).
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# Drop verbose platform logcat calls, but retain warnings/errors and exported diagnostics.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
 # AGP will combine all keep rule files in src/main/keepRules to pass to R8
 #
 # For more details, see

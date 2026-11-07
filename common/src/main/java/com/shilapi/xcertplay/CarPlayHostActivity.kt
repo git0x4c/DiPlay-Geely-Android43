@@ -1067,7 +1067,7 @@ class CarPlayHostActivity : ComponentActivity() {
             setImageResource(R.drawable.ic_carplay); contentDescription = getString(R.string.carplay)
         }, LinearLayout.LayoutParams(dp(88), dp(88)))
         panel.addView(TextView(this).apply {
-            text = getString(R.string.diplay); textSize = 34f; setTextColor(Color.rgb(241, 245, 252))
+            text = if (com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE) "GK19Play" else getString(R.string.diplay); textSize = 34f; setTextColor(Color.rgb(241, 245, 252))
             gravity = Gravity.CENTER; setPadding(0, dp(18), 0, dp(14))
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
@@ -1138,7 +1138,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
 
         leftContent.addView(TextView(this).apply {
-            text = getString(R.string.diplay)
+            text = if (com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE) "GK19Play" else getString(R.string.diplay)
             textSize = 28f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(Color.rgb(241, 245, 252))
@@ -3537,6 +3537,7 @@ class CarPlayHostActivity : ComponentActivity() {
             }
 
             override fun onDebugLog(message: String) {
+                if (!DiagnosticLogPolicy.shouldRecord(message, com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE)) return
                 if (DiagnosticRedactor.redact(message) == null) return
                 if (message.startsWith(CarPlayController.CONNECTION_DIAGNOSTIC_PREFIX + " ")) {
                     // Retain old-controller teardown evidence without accepting its UI/session state.
@@ -4465,13 +4466,15 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun appendLog(message: String) {
         val safe = redactSingleLogLine(message) ?: return
         val now = System.currentTimeMillis()
-        sessionLog?.append(formattedLogLine(safe, now))
+        if (com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE) AsyncDiagnosticLog.append(sessionLog, safe, now)
+        else sessionLog?.append(formattedLogLine(safe, now))
         enqueueUiLogLine(safe, now)
     }
 
     private fun appendFileLog(message: String) {
         val safe = redactSingleLogLine(message) ?: return
-        sessionLog?.append(formattedLogLine(safe, System.currentTimeMillis()))
+        if (com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE) AsyncDiagnosticLog.append(sessionLog, safe)
+        else sessionLog?.append(formattedLogLine(safe, System.currentTimeMillis()))
     }
 
     /** Adds a current-generation connection diagnostic already written to its async file log. */

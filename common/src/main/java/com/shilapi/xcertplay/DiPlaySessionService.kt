@@ -30,7 +30,7 @@ class DiPlaySessionService : Service() {
         val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP), flags)
         val notification = notificationBuilder(manager)
             .setSmallIcon(R.drawable.ic_diplay_notification)
-            .setContentTitle("DiPlay")
+            .setContentTitle(if (com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE) "GK19Play" else "DiPlay")
             .setContentText("CarPlay connection running")
             .setContentIntent(open).setOngoing(true)
             .addAction(0, "Disconnect", stop)

@@ -44,4 +44,13 @@ class Gl19AudioExperimentTest {
         Gl19AudioPolicy.fromBuild("typo")
     }
 
+    @Test fun optimizedReleaseHasDistinctMarkerWithoutChangingAudioPolicy() {
+        if (!com.shilapi.xcertplay.host.BuildConfig.GL19_RELEASE) return
+        assertEquals(Gl19AudioPolicy.A_OPUS, Gl19AudioExperiment.policy)
+        assertEquals("GK19PLAY-RELEASE-A-OPUS-SW", Gl19AudioExperiment.marker)
+        assertTrue(Gl19AudioExperiment.summary(19).contains("buildProfile=release-opt"))
+        assertTrue(Gl19AudioExperiment.reportFileName("test").startsWith("GK19Play-GK19PLAY-RELEASE-A-OPUS-SW-"))
+        assertTrue(Gl19AudioExperiment.policy.skipLegacyKeyFocus(19))
+        assertFalse(Gl19AudioExperiment.policy.skipLegacyRcc(19))
+    }
 }
