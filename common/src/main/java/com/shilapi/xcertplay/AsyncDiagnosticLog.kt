@@ -17,4 +17,5 @@ internal object AsyncDiagnosticLog {
     }
 
     internal fun awaitIdle(timeoutMillis: Long): Boolean = writer.awaitIdle(timeoutMillis)
+    internal val droppedCount: Long get() = writer.droppedCount
 }

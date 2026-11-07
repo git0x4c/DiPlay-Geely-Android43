@@ -204,9 +204,12 @@ internal class AudioFocusCoordinator(
     }
 
     @Suppress("DEPRECATION")
-    private fun requestAudioFocusLegacy(streamType: Int): Int = manager
-        ?.requestAudioFocus(listener, streamType, AudioManager.AUDIOFOCUS_GAIN)
-        ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
+    private fun requestAudioFocusLegacy(streamType: Int): Int {
+        val result = manager?.requestAudioFocus(listener, streamType, AudioManager.AUDIOFOCUS_GAIN)
+            ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
+        runCatching { report("Audio: focus owner=renderer request stream=$streamType result=$result") }
+        return result
+    }
 
     private fun refreshLegacyFocus() {
         val primary = legacyOnlyTracks.values.maxByOrNull { it.first.focusPriority() }
@@ -458,6 +461,7 @@ class AndroidMediaSink(
     }
 
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+        runCatching { onAudioDiagnostic("Audio: stream start type=${id.type} audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels}") }
         audioRenderer(id, format).start()
         if (format.audioType == "media") updateMediaAudio(id, true)
     }
@@ -467,6 +471,7 @@ class AndroidMediaSink(
     }
 
     override fun onAudioStopped(id: AudioStreamId) {
+        runCatching { onAudioDiagnostic("Audio: stream stop type=${id.type} audioType=${id.audioType} rendererPresent=${audioRenderers.containsKey(id)}") }
         audioRenderers.remove(id)?.close()
         updateMediaAudio(id, false)
     }
@@ -980,6 +985,9 @@ private class AudioRenderer(
     @Volatile private var started = false
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
+    private var softwareOpus: SoftwareOpusDecoder? = null
+    private var softwareOpusFailures = 0
+    private var softwareOpusFirstOutput = false
     private var pcm = ByteArray(64 * 1024)
     private var playbackStarted = false
     private var prebufferBytes = 0
@@ -1047,6 +1055,7 @@ private class AudioRenderer(
 
     override fun close() {
         running = false
+        runCatching { report("Audio: renderer close requested audioType=${format.audioType}") }
         thread.interrupt()
     }
 
@@ -1054,7 +1063,10 @@ private class AudioRenderer(
         try {
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
-                AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
+                AudioCodecKind.OPUS -> if (SoftwareOpusDecoder.usesSoftware(Build.VERSION.SDK_INT)) {
+                    softwareOpus = SoftwareOpusDecoder(format.sampleRate, format.channels)
+                    report("Audio: decoder selected codec=OPUS backend=concentus-software api=${Build.VERSION.SDK_INT} rate=${format.sampleRate} channels=${format.channels} audioType=${format.audioType}")
+                } else configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
                 AudioCodecKind.LPCM -> Unit
             }
             createTrack()
@@ -1076,6 +1088,7 @@ private class AudioRenderer(
             }
         } finally {
             runCatching { logStatsIfDue(force = true) }
+            runCatching { report("Audio: renderer worker exit audioType=${format.audioType}") }
             release()
         }
     }
@@ -1106,10 +1119,12 @@ private class AudioRenderer(
             MediaCodec.createDecoderByType(mime).also {
                 it.configure(mediaFormat, null, null, 0)
                 it.start()
+                report("Audio: decoder selected codec=${format.codec} backend=MediaCodec audioType=${format.audioType}")
                 Log.i(TAG, "audio decoder configured mime=$mime name=${it.name}")
             }
         } catch (error: Exception) {
             Log.e(TAG, "audio decoder configuration failed mime=$mime", error)
+            report("Audio: decoder init failed codec=${format.codec} backend=MediaCodec audioType=${format.audioType} error=${error.javaClass.simpleName}")
             null
         }
     }
@@ -1352,6 +1367,26 @@ private class AudioRenderer(
             }
             AudioCodecKind.OPUS -> {
                 val accessUnit = rtp.copyOfRange(12, rtp.size)
+                softwareOpus?.let { decoder ->
+                    val decoded = try {
+                        decoder.decode(accessUnit)
+                    } catch (error: Exception) {
+                        inputDropped++
+                        softwareOpusFailures++
+                        if (softwareOpusFailures <= 3) report("Audio: Opus decode rejected backend=concentus-software audioType=${format.audioType} bytes=${accessUnit.size} total=$softwareOpusFailures error=${error.javaClass.simpleName}")
+                        return
+                    }
+                    inputQueued++
+                    if (decoded.isNotEmpty()) {
+                        outputBuffers++
+                        if (!softwareOpusFirstOutput) {
+                            softwareOpusFirstOutput = true
+                            report("Audio: decoder first output codec=OPUS backend=concentus-software audioType=${format.audioType} frames=${decoded.size / frameBytes}")
+                        }
+                        writePcm(decoded)
+                    }
+                    return
+                }
                 if (accessUnit.size < MIN_OPUS_PACKET_BYTES) {
                     if (!firstOpusShortPacketLogged) {
                         firstOpusShortPacketLogged = true
@@ -1449,6 +1484,7 @@ private class AudioRenderer(
         val track = track ?: return
         if (!firstPcmLogged && length > 0) {
             firstPcmLogged = true
+            report("Audio: first PCM audioType=${format.audioType} codec=${format.codec} bytes=$length")
             val end = minOf(data.size, offset + minOf(length, 16))
             Log.i(
                 TAG,
@@ -1500,6 +1536,7 @@ private class AudioRenderer(
         underrunsAtPlaybackStart = PortableAudio.underrunCount(track)
         track.play()
         playbackStarted = true
+        runCatching { report("Audio: track play audioType=${format.audioType} channel=$mappedChannel rebufferCount=$rebufferCount") }
     }
 
     private fun maintainPlaybackBuffer() {
@@ -1512,6 +1549,7 @@ private class AudioRenderer(
             playbackStarted = false
             prebufferBytes = 0
             rebufferCount++
+            runCatching { report("Audio: track pause reason=bufferDrained audioType=${format.audioType} channel=$mappedChannel rebufferCount=$rebufferCount; not a media pause command") }
         }
         // A short final burst may never reach the start threshold. Play it after a bounded wait.
         if (!playbackStarted && prebufferBytes > 0 && queue.isEmpty() &&
@@ -1587,6 +1625,8 @@ private class AudioRenderer(
     @Synchronized
     private fun release() {
         abandonAudioFocus()
+        softwareOpus?.close()
+        softwareOpus = null
         val codec = codec
         this.codec = null
         if (codec != null) {

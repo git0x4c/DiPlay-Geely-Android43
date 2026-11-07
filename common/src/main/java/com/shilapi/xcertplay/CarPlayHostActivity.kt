@@ -376,6 +376,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var restartGeneration = 0
     private var reconnectScheduled = false
     private var sessionLog: SessionLogFile? = null
+    private var audioBehaviorDiagnostics: AudioBehaviorDiagnostics? = null
     private var gestureSequenceActive = false
     private var gestureTracking = false
     private var gestureStartX = 0f
@@ -1034,6 +1035,8 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         currentSurface = null
         currentSurfaceTexture = null
+        audioBehaviorDiagnostics?.close()
+        audioBehaviorDiagnostics = null
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
@@ -3449,11 +3452,7 @@ class CarPlayHostActivity : ComponentActivity() {
             },
             mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
             onAudioDiagnostic = { message ->
-                if (message.startsWith("Microphone: ")) {
-                    AsyncDiagnosticLog.append(diagnosticLog, message)
-                } else {
-                    diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
-                }
+                AudioBehaviorDiagnostics.record(diagnosticLog, message)
             },
             onMediaAudioChanged = { active ->
                 CarPlayMediaKeys.onMediaAudioChanged(active)
@@ -3724,7 +3723,7 @@ class CarPlayHostActivity : ComponentActivity() {
             geelyBluetoothEnabled = geelyBluetoothEnabled,
         )
         controller = next
-        CarPlayMediaKeys.attach(this, next)
+        CarPlayMediaKeys.attach(this, next, sessionLog)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && airPlayConfig.videoInCar) CarPlayVideo.attach(this, next)
         val display = CarPlaySessionDisplay(airPlayConfig.main.widthPixels, airPlayConfig.main.heightPixels,
             displayRotation(), hideTopBar, hideBottomBar, size.width, size.height)
@@ -4425,11 +4424,14 @@ class CarPlayHostActivity : ComponentActivity() {
         val weak = java.lang.ref.WeakReference(this)
         val visible = logLines.joinToString("\n") { it.text }
         val summary = keyDiagnostics.summary()
-        val fileName = "DiPlay-诊断报告-" + SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()) + ".txt"
+        val fileName = Gl19AudioExperiment.reportFileName(SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()))
         Thread({
             val result = runCatching {
+                val audioFlushed = AsyncDiagnosticLog.awaitIdle(2_000L)
                 val report = buildString {
                     appendLine("DiPlay connection diagnostic report")
+                    appendLine("Application package: ${app.packageName}")
+                    appendLine(AudioBehaviorDiagnostics.exportSummary(audioFlushed))
                     appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}; build=${Build.DISPLAY}")
                     appendLine(summary)
                     appendLine("--- Current visible log snapshot ---")
@@ -4511,10 +4513,12 @@ class CarPlayHostActivity : ComponentActivity() {
             activeLog.reset(
                 "DiPlay log started " +
                     "${SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())} " +
-                    "pid=${Process.myPid()} path=${logFile.absolutePath}",
+                    "pid=${Process.myPid()} path=${logFile.absolutePath} ${Gl19AudioExperiment.summary(Build.VERSION.SDK_INT)}",
             )
         }
         sessionLog = activeLog
+        AudioBehaviorDiagnostics.record(activeLog, "sessionAudioConfig rendererFocus=${AirPlayPersistence.loadAudioFocusEnabled(this)} geelyRouting=${AirPlayPersistence.loadGeelyAudioRouting(this)}")
+        audioBehaviorDiagnostics = AudioBehaviorDiagnostics(applicationContext, activeLog).also { it.start() }
     }
 
     private fun refreshLogView(nowMillis: Long) {

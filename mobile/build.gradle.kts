@@ -6,6 +6,12 @@ plugins {
 val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
     .orNull?.let { file(it).canonicalFile }
 
+// Opt-in GL19 diagnostic package: retain API18 support and coexist with published repair1 APKs.
+val gl19Diagnostics = providers.gradleProperty("diplay.gl19Diagnostics").orNull == "true"
+val gl19AudioTest = providers.gradleProperty("diplay.gl19AudioTest").getOrElse("baseline")
+require(gl19AudioTest in setOf("baseline", "a", "b", "aopus")) { "diplay.gl19AudioTest must be baseline, a, b or aopus" }
+require(gl19AudioTest == "baseline" || gl19Diagnostics) { "GL19 audio tests require GL19 diagnostics" }
+val gl19AudioTestEnabled = gl19AudioTest != "baseline"
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
@@ -18,8 +24,17 @@ android {
         // API 18 predates native multidex; keep the launcher installable on 4.3.
         multiDexEnabled = true
         targetSdk = 37
-        versionCode = 29
+        versionCode = if (gl19AudioTest == "aopus") 32 else if (gl19AudioTestEnabled) 30 else 29
         versionName = "0.2.10"
+        manifestPlaceholders["diplayAppLabel"] = when (gl19AudioTest) {
+            "aopus" -> "DiPlay GL19 A 导航修复"
+            "a" -> "DiPlay GL19 A 焦点测试"
+            "b" -> "DiPlay GL19 B RCC测试"
+            else -> if (gl19Diagnostics) "DiPlay GL19 诊断" else "@string/app_name"
+        }
+        if (gl19Diagnostics) {
+            ndk { abiFilters += "armeabi-v7a" }
+        }
 
     }
 
@@ -40,8 +55,8 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".repair1"
-            versionNameSuffix = "-hud-test"
+            applicationIdSuffix = if (gl19AudioTest == "aopus") ".gl19diaga" else if (gl19AudioTestEnabled) ".gl19diag$gl19AudioTest" else if (gl19Diagnostics) ".gl19diag" else ".repair1"
+            versionNameSuffix = if (gl19AudioTest == "aopus") "-gl19-a-opus-tools" else if (gl19AudioTestEnabled) "-gl19-$gl19AudioTest" else if (gl19Diagnostics) "-gl19-diag" else "-hud-test"
         }
         release {
             optimization {

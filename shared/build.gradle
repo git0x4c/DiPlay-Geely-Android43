@@ -22,7 +22,9 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    ndkVersion = '28.2.13676358'
+    // GL19 packages must actually link against an API18 platform, not r28's API21 floor.
+    ndkVersion = providers.gradleProperty('diplay.gl19Diagnostics').orNull == 'true'
+        ? '23.2.8568313' : '28.2.13676358'
     // The JNI modules use API-18 POSIX/JNI calls. NDK r28's supported platform floor is 21.
     experimentalProperties["android.ndk.suppressMinSdkVersionError"] = 21
     externalNativeBuild {
@@ -38,6 +40,8 @@ android {
 dependencies {
     compileOnly libs.androidx.annotation
     implementation libs.bouncycastle
+    // P21-compatible pure Java Opus decoder for API18-20; no new native ABI requirement.
+    implementation 'io.github.jaredmdobson:concentus:1.0.2'
     // Vendored JmDNS 3.6.3 with the Android multicast-socket ordering/API-18 fixes.
     api project(':jmdns')
     testImplementation libs.junit

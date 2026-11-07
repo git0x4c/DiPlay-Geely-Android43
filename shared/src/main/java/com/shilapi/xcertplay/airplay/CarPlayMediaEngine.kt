@@ -121,6 +121,7 @@ class CarPlayMediaEngine(
         // type 100); only the same (type, audioType) pair replaces a previous stream.
         val streamKey = StreamKey(session, type, audioType)
         val streamId = AudioStreamId(type, audioType)
+        session.logDebug("Audio: streamStopRequested reason=setupReplacement type=$type existing=${streams.containsKey(streamKey)}")
         streams.remove(streamKey)?.close()
         audioMeta.remove(streamKey)
         audioCaptures.remove(streamKey)?.close()
@@ -317,6 +318,7 @@ class CarPlayMediaEngine(
         if (type == STREAM_TYPE_DATA) clearPendingIapTunnel(session)
         // TEARDOWN carries only the stream type; release every audioType variant of it.
         val tornDown = streams.keys.filter { it.session === session && it.type == type }
+        session.logDebug("Audio: streamStopRequested reason=peerTeardown type=$type matchedStreams=${tornDown.size}")
         tornDown.forEach { key ->
             val streamId = AudioStreamId(key.type, key.audioType)
             if (pendingMicrophone.remove(key) != null) sink.onMicrophoneStopped(streamId)
@@ -332,6 +334,7 @@ class CarPlayMediaEngine(
         clearPendingIapTunnel(session)
         videoSettingsChannels.remove(session)?.close()
         val sessionStreams = streams.keys.filter { it.session === session }
+        session.logDebug("Audio: streamStopRequested reason=sessionClosed matchedStreams=${sessionStreams.size}")
         sessionStreams
             .filter { isScreenStreamType(it.type) }
             .forEach { sink.onScreenStreamActive(it.type, false) }

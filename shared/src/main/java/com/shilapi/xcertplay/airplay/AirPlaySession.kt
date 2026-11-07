@@ -560,6 +560,7 @@ class AirPlaySession(
         val type = string(body["type"])
         val params = asMap(body["params"]) ?: emptyMap()
         debugLog("airplay command type=$type keys=${params.keys.sorted()}")
+        if (type == "modesChanged") debugLog(AudioModeDiagnostics.summarize(params))
         val streamId = request.headers["x-apple-streamid"]?.toLongOrNull()
         val data = params["data"] as? ByteArray
         if (streamId != null && data != null) {
@@ -583,6 +584,8 @@ class AirPlaySession(
             null
         }
         val types = teardownStreamTypes(decodedBody)
+        // Separate metadata-only line survives report redaction; never export the decoded message.
+        debugLog("Audio: teardown received types=${types ?: "all"} activeBefore=$activeStreams")
 
         debugLog(
             "airplay TEARDOWN types=${types ?: "all"} activeBefore=$activeStreams " +

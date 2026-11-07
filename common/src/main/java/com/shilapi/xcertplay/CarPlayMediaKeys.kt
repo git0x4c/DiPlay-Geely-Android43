@@ -44,11 +44,16 @@ internal object CarPlayMediaKeys {
     private var mediaAudioActive = false
     private var nowPlaying = CarPlayNowPlaying()
     private var elapsedUpdatedAt = 0L
+    @Volatile private var diagnosticLog: SessionLogFile? = null
+    private var lastPublishedPlaying: Boolean? = null
+    private var lastObservedPlaying: Boolean? = null
+    private var lastProgressLogAt = 0L
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
 
     /** API 18 routes hardware keys through AudioManager and RemoteControlClient. */
     private val legacyFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        diagnostic("focus owner=legacyMediaKeys change=$change")
         if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { legacyFocusHeld = false }
     }
     private var legacyFocusHeld = false
@@ -57,13 +62,15 @@ internal object CarPlayMediaKeys {
     private var legacyRemoteControlClient: RemoteControlClient? = null
 
     @Synchronized
-    fun attach(context: Context, next: CarPlayController) {
+    fun attach(context: Context, next: CarPlayController, log: SessionLogFile? = null) {
         if (controller !== next) {
             releaseLocked()
             artworkOwner = artworkQueue.newSession()
         }
         appContext = context.applicationContext
+        diagnosticLog = log
         controller = next
+        diagnostic("mediaKeys attach api=${Build.VERSION.SDK_INT} ${Gl19AudioExperiment.summary(Build.VERSION.SDK_INT)}")
         next.playbackListener = { playing -> onIphonePlaying(next, playing) }
         next.nowPlayingListener = { update -> onNowPlayingChanged(next, update) }
         next.artworkListener = { id, bytes -> onArtworkChanged(next, id, bytes) }
@@ -82,14 +89,20 @@ internal object CarPlayMediaKeys {
 
     /** Called when CarPlay audio starts or stops; may run on any thread. */
     fun onMediaAudioChanged(active: Boolean) {
-        mainHandler.post { synchronized(this) { updateLocked(active) } }
+        mainHandler.post {
+            synchronized(this) {
+                diagnostic("mediaStream active=$active")
+                updateLocked(active)
+            }
+        }
     }
 
     private fun onIphonePlaying(expected: CarPlayController, playing: Boolean) {
-        if (!playing) return
         mainHandler.post {
             synchronized(this) {
                 if (controller !== expected) return@synchronized
+                diagnostic("iphonePlayback playing=$playing")
+                if (!playing) return@synchronized
                 regainFocusLocked()
                 publishPlaybackStateLocked()
             }
@@ -100,6 +113,12 @@ internal object CarPlayMediaKeys {
         mainHandler.post {
             synchronized(this) {
                 if (controller !== expected) return@synchronized
+                val now = SystemClock.elapsedRealtime()
+                if (lastObservedPlaying != update.playing || now - lastProgressLogAt >= 5_000L) {
+                    diagnostic("iphoneNowPlaying playing=${update.playing} positionMs=${update.elapsedMillis ?: -1}")
+                    lastObservedPlaying = update.playing
+                    lastProgressLogAt = now
+                }
                 if (nowPlaying.artworkTransferId != update.artworkTransferId) {
                     artwork = update.artworkTransferId?.let { id ->
                         if (artworkCache.containsKey(id)) artworkCache[id] else null
@@ -140,7 +159,10 @@ internal object CarPlayMediaKeys {
         mediaAudioActive = active
         if (active) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                if (session == null) session = ModernSession(context, mainHandler, ::send)
+                if (session == null) {
+                    val target = diagnosticLog
+                    session = ModernSession(context, mainHandler, ::send) { AudioBehaviorDiagnostics.record(target, it) }
+                }
                 session?.setMetadata(nowPlaying, artwork)
             } else {
                 registerLegacyMediaButtons(context)
@@ -159,6 +181,7 @@ internal object CarPlayMediaKeys {
                 val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return
                 val index = CarPlayMediaButton.forKeyCode(event.keyCode) ?: return
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    diagnostic("hardwareKey source=legacy keyCode=${event.keyCode} mappedIndex=$index")
                     send(index, "legacyKeyEvent")
                 }
             }
@@ -179,6 +202,10 @@ internal object CarPlayMediaKeys {
         if (audio != null) {
             @Suppress("DEPRECATION")
             audio.registerMediaButtonEventReceiver(pending)
+            if (Gl19AudioExperiment.policy.skipLegacyRcc(Build.VERSION.SDK_INT)) {
+                diagnostic("legacyRcc registration=skipped reason=audioExperiment mediaButtonReceiver=registered")
+                return
+            }
             val client = RemoteControlClient(pending)
             @Suppress("DEPRECATION")
             audio.registerRemoteControlClient(client)
@@ -210,6 +237,10 @@ internal object CarPlayMediaKeys {
         }
         val context = appContext ?: return
         registerLegacyMediaButtons(context)
+        if (Gl19AudioExperiment.policy.skipLegacyKeyFocus(Build.VERSION.SDK_INT)) {
+            diagnostic("focus owner=legacyMediaKeys request=skipped reason=audioExperiment")
+            return
+        }
         // H52 track coordinator owns vendor focus; a second MUSIC focus mutes that route.
         if (AirPlayPersistence.loadGeelyAudioRouting(context)) return
         if (legacyFocusHeld) return
@@ -221,6 +252,7 @@ internal object CarPlayMediaKeys {
             AudioManager.AUDIOFOCUS_GAIN,
         )
         legacyFocusHeld = granted == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        diagnostic("focus owner=legacyMediaKeys request stream=3 result=$granted")
         Log.i(TAG, "legacy audio focus granted=$legacyFocusHeld")
     }
 
@@ -229,6 +261,10 @@ internal object CarPlayMediaKeys {
             nowPlaying.playing
         } else {
             mediaAudioActive
+        }
+        if (lastPublishedPlaying != playing) {
+            diagnostic("androidPlaybackPublished playing=$playing mediaAudioActive=$mediaAudioActive")
+            lastPublishedPlaying = playing
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             session?.setPlaybackState(playing, nowPlaying.elapsedMillis, elapsedUpdatedAt)
@@ -241,6 +277,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
+        diagnostic("mediaKeys release focusHeld=$legacyFocusHeld")
         artworkOwner = null
         artworkQueue.clear()
         unregisterLegacyMediaButtons()
@@ -256,16 +293,33 @@ internal object CarPlayMediaKeys {
         elapsedUpdatedAt = 0L
         artwork = null
         artworkCache.clear()
+        lastPublishedPlaying = null
+        lastObservedPlaying = null
+        lastProgressLogAt = 0L
+        diagnosticLog = null
     }
 
     private fun send(index: Int, source: String) {
+        val action = when (index) {
+            CarPlayMediaButton.PLAY -> "play"
+            CarPlayMediaButton.PAUSE -> "pause"
+            CarPlayMediaButton.PLAY_PAUSE -> "toggle"
+            CarPlayMediaButton.NEXT -> "next"
+            CarPlayMediaButton.PREVIOUS -> "previous"
+            else -> "unknown"
+        }
+        diagnostic("mediaCommand source=$source action=$action index=$index phase=received")
         if (CarPlayVideo.onMediaKey(index)) {
+            diagnostic("mediaCommand source=$source index=$index destination=carVideo sent=true")
             Log.i(TAG, "media key $source -> car video player $index")
             return
         }
         val sent = synchronized(this) { controller }?.sendMediaButton(index) ?: false
+        diagnostic("mediaCommand source=$source action=$action index=$index destination=iphone queued=$sent; not phone acknowledgement")
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
     }
+
+    private fun diagnostic(message: String) = AudioBehaviorDiagnostics.record(diagnosticLog, message)
 
     private fun decodeArtwork(bytes: ByteArray): Bitmap? {
         if (bytes.isEmpty()) return null

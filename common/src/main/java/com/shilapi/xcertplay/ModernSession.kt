@@ -23,10 +23,12 @@ internal class ModernSession(
     context: Context,
     handler: Handler,
     private val send: (Int, String) -> Unit,
+    private val diagnostic: (String) -> Unit = {},
 ) {
     private val audioManager: AudioManager? = context.systemService(AudioManager::class.java, "audio")
     private val session = MediaSession(context, "DiPlay CarPlay")
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        diagnostic("focus owner=modernMediaSession change=$change")
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> synchronized(this) { focusHeld = false }
             AudioManager.AUDIOFOCUS_GAIN -> synchronized(this) { focusHeld = true }
@@ -78,10 +80,12 @@ internal class ModernSession(
             audioManager?.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         }
         focusHeld = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        diagnostic("focus owner=modernMediaSession request stream=3 result=$result")
     }
 
     @Synchronized
     fun close() {
+        diagnostic("focus owner=modernMediaSession release held=$focusHeld")
         if (focusHeld) {
             val request = focusRequest
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && request != null) {

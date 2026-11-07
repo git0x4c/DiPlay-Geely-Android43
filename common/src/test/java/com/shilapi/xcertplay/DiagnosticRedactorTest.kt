@@ -5,6 +5,19 @@ import org.junit.Test
 import java.nio.file.Files
 
 class DiagnosticRedactorTest {
+    @Test fun audioExperimentAndStopReasonsSurviveRedaction() {
+        for (line in listOf(
+            "Audio: decoder selected codec=OPUS backend=concentus-software api=19 rate=48000 channels=1 audioType=default",
+            "Audio: decoder first output codec=OPUS backend=concentus-software audioType=default frames=960",
+            "Audio: Opus decode rejected backend=concentus-software audioType=default bytes=1 total=1 error=OpusException",
+            "Audio: modesChanged resources=[{resourceID=2,entity=1}] appStates=[{appID=speech,entity=2,speechMode=3}]",
+            "Audio: teardown received types=[102] activeBefore=[110, 102]",
+            "Audio: streamStopRequested reason=peerTeardown type=102 matchedStreams=1",
+            "AUDIO_EVENT uptimeMs=10 focus owner=renderer request stream=3 result=1 GL19_AUDIO_TEST=GL19-A-NO-KEY-FOCUS",
+            "AUDIO_EVENT uptimeMs=11 legacyRcc registration=skipped GL19_AUDIO_TEST=GL19-B-NO-KEY-FOCUS-NO-RCC",
+        )) assertEquals(line, DiagnosticRedactor.redact(line))
+    }
+
     @Test fun boundedMicrophoneStartFailureAndCaptureCountersSurviveRedaction() {
         val lines = listOf(
             "Microphone: start type=telephony source=VOICE_COMMUNICATION codec=OPUS rate=48000 channels=1 frameMs=20 routedDeviceType=15",
