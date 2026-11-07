@@ -88,6 +88,8 @@ class DiPlayActivity : ComponentActivity() {
     private var initialLaunch = true
     private var notificationTransport = true
     private var exportInProgress = false
+    private var storageScanInProgress = false
+    private var pendingStorageBrowse = false
     private var navigationStreamType = 14
     private var testToneTrack: AudioTrack? = null
     private var toneStop: Runnable? = null
@@ -118,7 +120,11 @@ class DiPlayActivity : ComponentActivity() {
         permissionHelp(getString(R.string.location), getString(R.string.allow_precise_location_for_diplay_in_the_head_unit_s_app_p))
     }
     private val export = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) result.data?.data?.let(::exportDiagnostics)
+        if (result.resultCode == RESULT_OK) result.data?.data?.let { exportDiagnostics(it) }
+    }
+    private val storagePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) chooseReportDestination(pendingStorageBrowse)
+        else toast(getString(R.string.export_storage_permission_denied))
     }
 
     private var languagePreferenceAtCreate = AppLocale.SYSTEM
@@ -273,6 +279,9 @@ class DiPlayActivity : ComponentActivity() {
             else -> getString(R.string.hotspot_hint_p2p)
         }
         card.addView(label(connectionHint, 15, MUTED).apply { setPadding(0, dp(14), 0, 0) })
+        card.addView(button(getString(R.string.hotspot_tools_enable_button), false) { confirmEnableCarHotspot() }, matchButton(10, 56))
+        card.addView(button(getString(R.string.open_android_settings), false) { openAndroidSettings() }, matchButton(10, 56))
+        card.addView(button(getString(R.string.browse_storage_title), false) { chooseReportDestination(true) }, matchButton(10, 56))
         if (carHotspotOff()) {
             card.addView(label(getString(R.string.msg_car_hotspot_off, AirPlayPersistence.loadManualHotspotSsid(this)), 15, WARNING).apply { setPadding(0, dp(14), 0, 0) })
             card.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(10, 56))
@@ -340,6 +349,7 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button(getString(R.string.open_connection_setup), false) { page = "connection"; render() }, matchButton(12, 60))
         }
         section(content, getString(R.string.diagnostics), R.drawable.ic_dp_diagnostics) { card ->
+            card.addView(label(getString(R.string.audio_behavior_diagnostics_hint), 14, MUTED))
             var vendorCheckButton: Button? = null
             toggle(
                 card,
@@ -364,8 +374,8 @@ class DiPlayActivity : ComponentActivity() {
                 else chooseReportDestination()
             }.apply { isEnabled = !exportInProgress }
             card.addView(exportButton, matchButton(10, 60))
-            if (Build.VERSION.SDK_INT >= 19) card.addView(button(getString(R.string.choose_save_location), false) { chooseReportDestination() }, matchButton(10, 60))
-            val destination = if (Build.VERSION.SDK_INT < 19) getString(R.string.legacy_report_destination) else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) getString(R.string.reports_save_to_downloads_diplay) else getString(R.string.choose_where_to_save_your_report)
+            card.addView(button(getString(R.string.choose_export_storage), false) { chooseReportDestination() }, matchButton(10, 60))
+            val destination = if (Build.VERSION.SDK_INT < 29) getString(R.string.export_storage_hint) else getString(R.string.reports_save_to_downloads_diplay)
             card.addView(label(destination + getString(R.string.nothing_is_sent_automatically_protocol_payloads_and_creden), 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
         }
         section(content, getString(R.string.automatic_connection), R.drawable.ic_dp_automation) { card ->
@@ -577,6 +587,8 @@ class DiPlayActivity : ComponentActivity() {
             }, matchButton(10, 56))
         }
         section(content, getString(R.string.permissions_and_connection_help), R.drawable.ic_dp_permissions) { card ->
+            card.addView(button(getString(R.string.open_android_settings), false) { openAndroidSettings() }, matchButton(10, 60))
+            card.addView(button(getString(R.string.browse_storage_title), false) { chooseReportDestination(true) }, matchButton(10, 60))
             card.addView(label(getString(R.string.nearby_devices_connects_your_iphone_microphone_enables_sir), 16, MUTED))
             card.addView(button(getString(R.string.app_permissions), false) { openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, matchButton(16, 60))
             card.addView(button(getString(R.string.bluetooth_settings), false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, matchButton(10, 60))
@@ -607,8 +619,8 @@ class DiPlayActivity : ComponentActivity() {
     private fun carHotspotOffDialog() {
         AlertDialog.Builder(this).setTitle(getString(R.string.car_hotspot_is_off))
             .setMessage(getString(R.string.msg_car_hotspot_connect, AirPlayPersistence.loadManualHotspotSsid(this)))
-            .setPositiveButton(getString(R.string.open_car_settings)) { _, _ -> openCarWifiSettings() }
-            .setNeutralButton(getString(R.string.connect)) { _, _ -> connect(true) }
+            .setPositiveButton(getString(R.string.hotspot_tools_enable_button)) { _, _ -> confirmEnableCarHotspot() }
+            .setNeutralButton(getString(R.string.open_car_settings)) { _, _ -> openCarWifiSettings() }
             .setNegativeButton(getString(R.string.cancel), null).show()
     }
 
@@ -715,14 +727,22 @@ class DiPlayActivity : ComponentActivity() {
                     carHotspotEnabledSnapshot = true
                     persistCarHotspotConfiguration(result.configuration)
                     setHotspotToolsMessage(getString(R.string.hotspot_tools_already_enabled))
+                    toast(getString(R.string.hotspot_tools_already_enabled))
                 }
                 is CarHotspotStartResult.Enabled -> {
                     carHotspotEnabledSnapshot = true
                     persistCarHotspotConfiguration(result.configuration)
                     setHotspotToolsMessage(getString(R.string.hotspot_tools_enabled))
+                    toast(getString(R.string.hotspot_tools_enabled))
                 }
-                is CarHotspotStartResult.Failure ->
+                is CarHotspotStartResult.Failure -> {
                     setHotspotToolsMessage(hotspotFailureMessage(result.reason))
+                    AlertDialog.Builder(this).setTitle(getString(R.string.hotspot_tools_enable_title))
+                        .setMessage(hotspotFailureMessage(result.reason))
+                        .setPositiveButton(getString(R.string.done), null)
+                        .setNeutralButton(getString(R.string.open_android_settings)) { _, _ -> openAndroidSettings() }
+                        .show()
+                }
             }
             is CarHotspotActionResult.State -> {
                 val wasEnabled = carHotspotEnabledSnapshot
@@ -1668,13 +1688,60 @@ class DiPlayActivity : ComponentActivity() {
         }
         connectButton?.isEnabled = setupError == null
     }
-    private fun reportFileName() = "DiPlay-诊断报告-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
+    private fun reportFileName() = Gl19AudioExperiment.reportFileName(SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()))
 
-    private fun chooseReportDestination() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-            exportDiagnostics()
+    private fun chooseReportDestination(browseOnly: Boolean = false) {
+        if (exportInProgress || storageScanInProgress) return
+        if (Build.VERSION.SDK_INT >= 29 && !browseOnly) {
+            chooseDocumentDestination()
             return
         }
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            pendingStorageBrowse = browseOnly
+            storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
+        storageScanInProgress = true
+        val appContext = applicationContext
+        Thread({
+            val result = runCatching { DiagnosticStorageTargets.discover(appContext) }
+            runOnUiThread {
+                storageScanInProgress = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val targets = result.getOrDefault(emptyList())
+                val dialog = AlertDialog.Builder(this).setTitle(getString(if (browseOnly) R.string.browse_storage_title else R.string.choose_export_storage))
+                    .setNegativeButton(getString(R.string.cancel), null)
+                    .setNeutralButton(getString(R.string.export_storage_refresh)) { _, _ -> chooseReportDestination(browseOnly) }
+                if (targets.isEmpty()) dialog.setMessage(getString(R.string.export_storage_empty))
+                else dialog.setItems(targets.map { target ->
+                    val label = getString(if (target.primary) R.string.export_storage_primary else R.string.export_storage_mounted)
+                    val state = if (target.readOnly) getString(R.string.export_storage_read_only) else ""
+                    "$label$state\n${target.directory.path}"
+                }.toTypedArray()) { _, index ->
+                    val target = targets[index]
+                    if (browseOnly) browseStorage(target)
+                    else AlertDialog.Builder(this).setTitle(target.directory.path)
+                        .setItems(arrayOf(getString(R.string.browse_storage_export), getString(R.string.browse_storage_title))) { _, action ->
+                            if (action == 1) browseStorage(target)
+                            else if (target.readOnly) toast(getString(R.string.export_storage_read_only))
+                            else exportDiagnostics(target = target)
+                        }.setNegativeButton(getString(R.string.cancel), null).show()
+                }
+                // API19+ may grant a document URI even when direct secondary-volume writes are denied.
+                if (Build.VERSION.SDK_INT >= 19 && !browseOnly) {
+                    dialog.setPositiveButton(getString(R.string.export_storage_system_picker)) { _, _ -> chooseDocumentDestination() }
+                }
+                dialog.show()
+            }
+        }, "diplay-storage-scan").start()
+    }
+
+    private fun browseStorage(target: DiagnosticStorageTargets.Target) {
+        MountedStorageBrowser(this, target) { exportDiagnostics(target = target) }.show()
+    }
+
+    private fun chooseDocumentDestination() {
+        if (Build.VERSION.SDK_INT < 19) return
         // Some head units omit or disable DocumentsUI. Launch itself can throw, before
         // the result callback and the background writer's exception handler ever run.
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -1689,7 +1756,7 @@ class DiPlayActivity : ComponentActivity() {
         }
     }
 
-    private fun exportDiagnostics(uri: Uri? = null) {
+    private fun exportDiagnostics(uri: Uri? = null, target: DiagnosticStorageTargets.Target? = null) {
         if (exportInProgress) return
         exportInProgress = true
         exportButton?.apply { isEnabled = false; text = getString(R.string.saving_report) }
@@ -1697,10 +1764,13 @@ class DiPlayActivity : ComponentActivity() {
         val fileName = reportFileName()
         Thread({
             val result = runCatching {
+                val audioFlushed = AsyncDiagnosticLog.awaitIdle(2_000L)
                 val report = buildString {
                     appendLine("DiPlay ${version()} · private beta diagnostic report")
                     appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
                     appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
+                    appendLine("Application package: ${appContext.packageName}")
+                    appendLine("Saved audio settings (not active-session proof): rendererFocus=${AirPlayPersistence.loadAudioFocusEnabled(appContext)} geelyRouting=${AirPlayPersistence.loadGeelyAudioRouting(appContext)}")
                     appendLine("Connection: ${if (AirPlayPersistence.loadWirelessEnabled(appContext)) "wireless" else "USB"}")
                     appendLine("Saved Bluetooth backend preference (not active-link proof): ${if (AirPlayPersistence.loadGeelyBluetoothConnectionEnabled(appContext)) "H52-ANW" else "Android"}")
                     appendLine("Authentication: local experimental beta identity; no remote fallback")
@@ -1710,6 +1780,9 @@ class DiPlayActivity : ComponentActivity() {
                     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScaleTenths(appContext) * 10}%")
                     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
                     appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
+                    appendLine(AudioBehaviorDiagnostics.exportSummary(audioFlushed))
+                    appendLine("--- Last native Android settings launch (request only) ---")
+                    appendLine(AndroidSettingsLauncher.report(appContext))
                     appendLine()
                     appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
                     appendLine(DisplayDiagnosticSnapshot.report(appContext))
@@ -1733,7 +1806,8 @@ class DiPlayActivity : ComponentActivity() {
                         }
                     }
                 }
-                if (uri != null) { DiagnosticExportStore.write(appContext.contentResolver, uri, report); uri }
+                if (target != null) DiagnosticExportStore.saveSelected(appContext, target, fileName, report)
+                else if (uri != null) { DiagnosticExportStore.write(appContext.contentResolver, uri, report); uri }
                 else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     DiagnosticExportStore.saveToDownloads(appContext.contentResolver, fileName, report)
                 } else if (Build.VERSION.SDK_INT < 19) {
@@ -1747,7 +1821,7 @@ class DiPlayActivity : ComponentActivity() {
                 if (result.isSuccess) {
                     val savedUri = result.getOrThrow()
                     AlertDialog.Builder(this).setTitle(getString(R.string.diagnostic_report_saved))
-                        .setMessage(if (Build.VERSION.SDK_INT < 19) savedUri.path else if (uri == null) "Downloads/DiPlay/$fileName" else getString(R.string.your_report_was_saved_to_the_selected_location))
+                        .setMessage(if (savedUri.scheme == "file") savedUri.path else if (uri == null) "Downloads/DiPlay/$fileName" else getString(R.string.your_report_was_saved_to_the_selected_location))
                         .setPositiveButton(getString(R.string.done), null)
                         .setNeutralButton(getString(R.string.share)) { _, _ ->
                             runCatching {
@@ -1760,7 +1834,7 @@ class DiPlayActivity : ComponentActivity() {
                         }.show()
                 } else {
                     AlertDialog.Builder(this).setTitle(getString(R.string.could_not_save_the_report))
-                        .setMessage(getString(if (Build.VERSION.SDK_INT < 19) R.string.legacy_report_failed else R.string.check_that_storage_is_available_or_choose_another_save_loc))
+                        .setMessage(getString(if (target != null) R.string.export_storage_failed else if (Build.VERSION.SDK_INT < 19) R.string.legacy_report_failed else R.string.check_that_storage_is_available_or_choose_another_save_loc))
                         .setPositiveButton(getString(if (Build.VERSION.SDK_INT < 19) R.string.legacy_report_retry else R.string.choose_location)) { _, _ -> chooseReportDestination() }
                         .setNegativeButton(getString(R.string.close), null).show()
                 }
@@ -1771,6 +1845,22 @@ class DiPlayActivity : ComponentActivity() {
         AlertDialog.Builder(this).setTitle(title).setMessage(body).setPositiveButton(getString(R.string.app_settings)) { _, _ ->
             openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }.setNegativeButton(getString(R.string.later), null).show()
+    }
+    private fun openAndroidSettings() {
+        val pages = AndroidSettingsLauncher.Page.values()
+        val labels = resources.getStringArray(R.array.android_native_settings_pages)
+        AlertDialog.Builder(this).setTitle(getString(R.string.open_android_settings))
+            .setMessage(getString(R.string.android_native_settings_hint))
+            .setPositiveButton(getString(R.string.android_native_settings_choose)) { _, _ ->
+                AlertDialog.Builder(this).setTitle(getString(R.string.open_android_settings))
+                    .setItems(labels) { _, index ->
+                        if (!AndroidSettingsLauncher.open(this, pages[index])) {
+                            AlertDialog.Builder(this).setTitle(getString(R.string.open_android_settings))
+                                .setMessage(getString(R.string.android_settings_blocked))
+                                .setPositiveButton(getString(R.string.done), null).show()
+                        }
+                    }.setNegativeButton(getString(R.string.cancel), null).show()
+            }.setNegativeButton(getString(R.string.cancel), null).show()
     }
     private fun openSystem(intent: Intent) { runCatching { startActivity(intent) }.onFailure { toast(getString(R.string.open_this_setting_from_your_car_s_settings_app)) } }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }

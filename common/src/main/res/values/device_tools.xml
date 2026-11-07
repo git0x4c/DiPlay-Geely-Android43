@@ -1,0 +1,30 @@
+<resources>
+    <string name="audio_behavior_diagnostics_hint">Audio behavior logging runs with the CarPlay host: play/pause commands, reported playback, focus and buffer events. Reproduce the issue, then export this report. No sound is recorded; OEM-private Bluetooth events may not be visible.</string>
+    <string name="choose_export_storage">Choose export storage (USB / SD)</string>
+    <string name="export_storage_hint">Insert a USB drive, then choose its mounted path. Storage permissions are checked when saving. </string>
+    <string name="export_storage_primary">Primary shared storage (not necessarily USB)</string>
+    <string name="export_storage_mounted">Mounted storage (USB / SD; verify path)</string>
+    <string name="export_storage_read_only"> — read-only</string>
+    <string name="export_storage_refresh">Refresh disks</string>
+    <string name="export_storage_empty">No accessible mounted storage was found. Insert a USB drive, wait for the car to mount it, then refresh.</string>
+    <string name="export_storage_system_picker">System file picker</string>
+    <string name="export_storage_permission_denied">Storage permission was denied. No report was exported.</string>
+    <string name="export_storage_failed">The selected disk could not be written or verified. It may have been removed, be full or read-only, or the firmware may deny access. Nothing was exported to a different disk. Reinsert it or use the system file picker if available.</string>
+    <string name="open_android_settings">Open native Android settings</string>
+    <string name="android_native_settings_hint">Targets Android settings components directly instead of the car settings resolver. Try Wi-Fi or Apps if the main page is customized. Missing, protected, or OEM-redirected pages cannot be unlocked by this shortcut.</string>
+    <string name="android_native_settings_choose">Choose native page</string>
+    <string-array name="android_native_settings_pages">
+        <item>Native settings home</item><item>Native Wi-Fi settings</item><item>Native wireless settings</item>
+        <item>Native application management</item><item>Native developer options</item><item>Native device information</item>
+    </string-array>
+    <string name="browse_storage_title">Open USB / mounted storage</string>
+    <string name="browse_storage_loading">Reading selected disk…</string>
+    <string name="browse_storage_up">Up</string>
+    <string name="browse_storage_export">Export report to this disk</string>
+    <string name="browse_storage_empty">This folder is empty.</string>
+    <string name="browse_storage_truncated">Showing the first 500 entries.</string>
+    <string name="browse_storage_failed">Unable to read this location. The disk may be removed or inaccessible. Return up or reopen and refresh the disk list.</string>
+    <string name="browse_storage_preview_hint">Read-only preview: UTF-8 text, up to the first 64 KiB. No file is modified or executed.</string>
+    <string name="browse_storage_file_info">File location: %1$s\nThis type supports filename viewing only; it is not executed, installed or played.</string>
+    <string name="android_settings_blocked">This firmware has no accessible Android settings entry. The page may be absent, disabled or protected by the manufacturer. An app shortcut cannot bypass system permissions. No system components were changed.</string>
+</resources>

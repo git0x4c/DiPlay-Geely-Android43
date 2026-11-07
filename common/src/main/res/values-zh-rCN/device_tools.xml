@@ -1,0 +1,30 @@
+<resources>
+    <string name="audio_behavior_diagnostics_hint">CarPlay 运行期间自动记录播放/暂停指令、手机上报状态、音频焦点与缓冲事件。复现问题后导出本报告即可，不录制声音。原厂私有蓝牙事件可能无法观测。</string>
+    <string name="choose_export_storage">选择导出磁盘（U盘 / SD卡）</string>
+    <string name="export_storage_hint">插入U盘后选择实际挂载路径，保存时检查写入权限。</string>
+    <string name="export_storage_primary">主共享存储（不一定是U盘）</string>
+    <string name="export_storage_mounted">挂载存储（U盘 / SD卡，请核对路径）</string>
+    <string name="export_storage_read_only"> — 只读</string>
+    <string name="export_storage_refresh">刷新磁盘</string>
+    <string name="export_storage_empty">未找到可访问的已挂载磁盘。请插入U盘，等待车机挂载后刷新。</string>
+    <string name="export_storage_system_picker">系统文件选择器</string>
+    <string name="export_storage_permission_denied">存储权限未获准，未导出报告。</string>
+    <string name="export_storage_failed">无法写入或校验所选磁盘，可能已拔出、空间不足、只读或被固件拒绝访问。没有改存到其他磁盘。请重新插入，或尝试可用的系统文件选择器。</string>
+    <string name="open_android_settings">打开 Android 原生设置</string>
+    <string name="android_native_settings_hint">直接指定 Android 设置组件，不再优先调用会被车机接管的通用设置入口。首页若被改造，可尝试 Wi-Fi 或应用管理子页面。组件缺失、权限保护或厂商再次重定向时，本入口不能强行解锁。</string>
+    <string name="android_native_settings_choose">选择原生页面</string>
+    <string-array name="android_native_settings_pages">
+        <item>原生设置首页</item><item>原生 Wi-Fi 设置</item><item>原生无线设置</item>
+        <item>原生应用管理</item><item>原生开发者选项</item><item>原生设备信息</item>
+    </string-array>
+    <string name="browse_storage_title">打开 U 盘 / 浏览磁盘</string>
+    <string name="browse_storage_loading">正在读取所选磁盘…</string>
+    <string name="browse_storage_up">上一级</string>
+    <string name="browse_storage_export">导出报告到此磁盘</string>
+    <string name="browse_storage_empty">此目录为空。</string>
+    <string name="browse_storage_truncated">仅显示前 500 项。</string>
+    <string name="browse_storage_failed">无法读取此位置，磁盘可能已拔出或受到访问限制。请返回上一级，或重新打开并刷新磁盘列表。</string>
+    <string name="browse_storage_preview_hint">只读预览：按 UTF-8 显示文本前 64 KiB，不修改或执行文件。</string>
+    <string name="browse_storage_file_info">文件位置：%1$s\n此类型仅查看文件名，不执行、不安装、不播放。</string>
+    <string name="android_settings_blocked">此固件没有可访问的 Android 设置入口，页面可能被裁剪、禁用或受到厂商权限保护。应用内入口不能绕过系统权限，本次没有修改任何系统组件。</string>
+</resources>
